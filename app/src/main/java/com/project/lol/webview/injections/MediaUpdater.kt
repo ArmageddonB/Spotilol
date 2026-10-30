@@ -137,7 +137,7 @@ object MediaUpdater {
                     ? window.splPlayingTrackId()
                     : (window.splTrackId || window.__curTrackId || null);
                 var m = (id && window.__splTrackMeta && window.__splTrackMeta[id]) || {};
-                var album = m.album || ((id != null && window.__curTrackId === id) ? window.__curTrackAlbum : null) || '';
+                var album = m.album || ((id != null && window.__curTrackId === id) ? window.__curTrackAlbum : null) || window.__splMsAlbum || '';
 
                 var restart = (typeof position === 'number' && typeof lastPos === 'number' && position < lastPos - 2000);
                 lastPos = position;

@@ -776,14 +776,18 @@ class MediaNotificationService : MediaBrowserServiceCompat() {
         webView?.evaluateJavascript("actPlayPause(true)", null)
     }
 
+    // org.json turns a JSON null into the text "null"; treat it as empty instead.
+    private fun jsonText(obj: org.json.JSONObject, key: String): String =
+        if (obj.isNull(key)) "" else obj.optString(key, "")
+
     fun updateFromMediaStatus(json: String) {
         try {
             lastMediaStatusJson = json
             val obj = org.json.JSONObject(json)
-            currentTitle = obj.optString("track", "")
-            currentArtist = obj.optString("artist", "")
-            currentAlbum = obj.optString("album", "")
-            val coverUrl = obj.optString("cover", "")
+            currentTitle = jsonText(obj, "track")
+            currentArtist = jsonText(obj, "artist")
+            currentAlbum = jsonText(obj, "album")
+            val coverUrl = jsonText(obj, "cover")
 
             if (coverUrl.isNotEmpty() && coverUrl != "null" && coverUrl != lastCoverUrl) {
                 lastCoverUrl = coverUrl
