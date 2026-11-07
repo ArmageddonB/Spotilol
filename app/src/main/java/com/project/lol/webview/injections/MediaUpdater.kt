@@ -132,21 +132,72 @@ object MediaUpdater {
                 return p;
             };
 
+            /*
+             * Last-resort source for album and cover: Spotify's own "currently playing"
+             * endpoint, called with the web player's token. Used only while the page
+             * gave no album or cover for the current title, once per track.
+             */
+            window.splApiNowKey = function(){
+                return String(typeof track !== 'undefined' ? track : '') + '|' + String(typeof artist !== 'undefined' ? artist : '');
+            };
+
+            window.splApiNowFetch = function(){
+                try{
+                    if(!window.spotAuthToken || window.__splApiBusy) return;
+                    var key = window.splApiNowKey();
+                    if(window.__splApiNow && window.__splApiNow.key === key) return;
+                    if(window.__splApiFailKey === key && Date.now() - (window.__splApiFailAt || 0) < 4000) return;
+                    window.__splApiBusy = true;
+                    var hdr = { 'Authorization': window.spotAuthToken, 'app-platform': 'WebPlayer' };
+                    if(window.spotCliToken) hdr['Client-Token'] = window.spotCliToken;
+                    var f = window.mngFetch || window.fetch;
+                    f('https://api.spotify.com/v1/me/player/currently-playing?additional_types=track,episode', { headers: hdr })
+                        .then(function(r){ if(r.status !== 200) throw new Error('status ' + r.status); return r.json(); })
+                        .then(function(j){
+                            var it = j && j.item;
+                            if(!it) throw new Error('no item');
+                            var t = (typeof track === 'string') ? track.trim().toLowerCase() : '';
+                            if(t && String(it.name || '').trim().toLowerCase() !== t) throw new Error('other track');
+                            var src = it.album || it.show || {};
+                            var imgs = (it.album && it.album.images) || it.images || (it.show && it.show.images) || [];
+                            window.__splApiNow = {
+                                key: key,
+                                id: it.id || null,
+                                album: src.name || '',
+                                cover: (imgs.length && imgs[0].url) ? imgs[0].url : null
+                            };
+                            window.lastState = null;
+                            if(typeof window.updMedia === 'function'){ try{ window.updMedia(); }catch(e){} }
+                        })
+                        .catch(function(){ window.__splApiFailKey = key; window.__splApiFailAt = Date.now(); })
+                        .then(function(){ window.__splApiBusy = false; });
+                }catch(e){ window.__splApiBusy = false; }
+            };
+
             window.updMedia = function(){
                 var id = (typeof window.splPlayingTrackId === 'function')
                     ? window.splPlayingTrackId()
                     : (window.splTrackId || window.__curTrackId || null);
                 var m = (id && window.__splTrackMeta && window.__splTrackMeta[id]) || {};
-                var album = m.album || ((id != null && window.__curTrackId === id) ? window.__curTrackAlbum : null) || window.__splMsAlbum || '';
+                var api = (window.__splApiNow && window.__splApiNow.key === window.splApiNowKey()) ? window.__splApiNow : null;
+                var tl = (typeof track === 'string') ? track.trim().toLowerCase() : '';
+                var sameName = function(n){ return !n || !tl || String(n).trim().toLowerCase() === tl; };
+                var album = m.album || ((id != null && window.__curTrackId === id) ? window.__curTrackAlbum : null) || window.__splMsAlbum || (api && api.album) || '';
+                var coverOut = cover
+                    || ((m.cover && sameName(m.name)) ? m.cover : null)
+                    || ((id != null && window.__curTrackId === id && sameName(window.__curTrackName)) ? window.__curTrackCover : null)
+                    || (api && api.cover)
+                    || null;
+                if(track && (!coverOut || !album)) window.splApiNowFetch();
 
                 var restart = (typeof position === 'number' && typeof lastPos === 'number' && position < lastPos - 2000);
                 lastPos = position;
                 if(restart) lastState = null;
 
-                var currState=track+'|'+artist+'|'+playing+'|'+repmode+'|'+isfav+'|'+shuffle+'|'+album+'|'+duration+'|'+cover;
+                var currState=track+'|'+artist+'|'+playing+'|'+repmode+'|'+isfav+'|'+shuffle+'|'+album+'|'+duration+'|'+coverOut;
                 if(currState!==lastState) {
                     lastState=currState;
-                    var values={artist:artist,track:track,album:album,playing:playing,repeat:repmode,fav:isfav,shuffle:shuffle,duration:duration,position:position,cover:cover};
+                    var values={artist:artist,track:track,album:album,playing:playing,repeat:repmode,fav:isfav,shuffle:shuffle,duration:duration,position:position,cover:coverOut};
                     AndBridge.recMediaStatus(JSON.stringify(values));
                 } else {
                     AndBridge.recMediaPosition(position);
