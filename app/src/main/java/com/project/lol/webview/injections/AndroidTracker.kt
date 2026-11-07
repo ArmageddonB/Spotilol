@@ -62,6 +62,7 @@ object AndroidTracker {
                 out.artist = artist || '';
                 out.cover = cover || null;
                 out.album = (ms && ms.album) ? String(ms.album).trim() : '';
+                if(typeof window.splFillNowPlaying === 'function'){ try{ window.splFillNowPlaying(out); }catch(e){} }
                 return out;
             };
 

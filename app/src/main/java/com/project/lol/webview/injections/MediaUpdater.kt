@@ -138,15 +138,17 @@ object MediaUpdater {
              * gave no album or cover for the current title, once per track.
              */
             window.splApiNowKey = function(){
-                return String(typeof track !== 'undefined' ? track : '') + '|' + String(typeof artist !== 'undefined' ? artist : '');
+                return String(typeof track !== 'undefined' && track != null ? track : '');
             };
 
-            window.splApiNowFetch = function(){
+            window.splApiNowFetch = function(keyArg){
                 try{
                     if(!window.spotAuthToken || window.__splApiBusy) return;
-                    var key = window.splApiNowKey();
+                    var key = (typeof keyArg === 'string') ? keyArg : window.splApiNowKey();
+                    if(!key) return;
                     if(window.__splApiNow && window.__splApiNow.key === key) return;
-                    if(window.__splApiFailKey === key && Date.now() - (window.__splApiFailAt || 0) < 4000) return;
+                    if(window.__splApiFailKey !== key){ window.__splApiFailKey = key; window.__splApiFailN = 0; window.__splApiFailAt = 0; }
+                    if(window.__splApiFailN >= 6 || Date.now() - window.__splApiFailAt < 4000) return;
                     window.__splApiBusy = true;
                     var hdr = { 'Authorization': window.spotAuthToken, 'app-platform': 'WebPlayer' };
                     if(window.spotCliToken) hdr['Client-Token'] = window.spotCliToken;
@@ -156,22 +158,44 @@ object MediaUpdater {
                         .then(function(j){
                             var it = j && j.item;
                             if(!it) throw new Error('no item');
-                            var t = (typeof track === 'string') ? track.trim().toLowerCase() : '';
-                            if(t && String(it.name || '').trim().toLowerCase() !== t) throw new Error('other track');
+                            if(String(it.name || '').trim().toLowerCase() !== key.trim().toLowerCase()) throw new Error('other track');
                             var src = it.album || it.show || {};
                             var imgs = (it.album && it.album.images) || it.images || (it.show && it.show.images) || [];
+                            var names = [];
+                            if(it.artists){ for(var i = 0; i < it.artists.length; i++){ if(it.artists[i] && it.artists[i].name) names.push(it.artists[i].name); } }
                             window.__splApiNow = {
                                 key: key,
                                 id: it.id || null,
+                                artist: names.length ? names.join(', ') : ((it.show && it.show.publisher) || ''),
                                 album: src.name || '',
                                 cover: (imgs.length && imgs[0].url) ? imgs[0].url : null
                             };
                             window.lastState = null;
                             if(typeof window.updMedia === 'function'){ try{ window.updMedia(); }catch(e){} }
                         })
-                        .catch(function(){ window.__splApiFailKey = key; window.__splApiFailAt = Date.now(); })
+                        .catch(function(){ window.__splApiFailN = (window.__splApiFailN || 0) + 1; window.__splApiFailAt = Date.now(); })
                         .then(function(){ window.__splApiBusy = false; });
                 }catch(e){ window.__splApiBusy = false; }
+            };
+
+            /*
+             * Fills artist, album and cover that the page did not give, from the stored
+             * track metadata and then from the currently-playing endpoint. Both are used
+             * only when they belong to the same title.
+             */
+            window.splFillNowPlaying = function(np){
+                if(!np || !np.track) return np;
+                var key = String(np.track);
+                var tl = key.trim().toLowerCase();
+                var id = (typeof window.splPlayingTrackId === 'function') ? window.splPlayingTrackId() : null;
+                var m = (id && window.__splTrackMeta && window.__splTrackMeta[id]) || null;
+                if(m && m.name && String(m.name).trim().toLowerCase() !== tl) m = null;
+                var api = (window.__splApiNow && window.__splApiNow.key === key) ? window.__splApiNow : null;
+                if(!np.artist) np.artist = (m && m.artist) || (api && api.artist) || '';
+                if(!np.album) np.album = (m && m.album) || (api && api.album) || '';
+                if(!np.cover) np.cover = (m && m.cover) || (api && api.cover) || null;
+                if(!np.artist || !np.album || !np.cover) window.splApiNowFetch(key);
+                return np;
             };
 
             window.updMedia = function(){
