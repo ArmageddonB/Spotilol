@@ -141,62 +141,92 @@ object MediaUpdater {
                 return String(typeof track !== 'undefined' && track != null ? track : '');
             };
 
+            window.splLog = function(m){ try{ AndBridge.dbg('s', '[meta] ' + m); }catch(e){} };
+
+            window.splB62Hex = function(id){
+                try{
+                    var A = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', n = BigInt(0);
+                    for(var i = 0; i < id.length; i++){ var v = A.indexOf(id[i]); if(v < 0) return null; n = n * BigInt(62) + BigInt(v); }
+                    var h = n.toString(16); while(h.length < 32) h = '0' + h; return h;
+                }catch(e){ return null; }
+            };
+
+            window.splNowTrackId = function(){
+                try{
+                    var links = document.querySelectorAll('a[data-testid="context-item-link"], [data-testid="now-playing-widget"] a[href]');
+                    for(var li = 0; li < links.length; li++){
+                        var h = String(links[li].getAttribute('href') || '');
+                        try{ h = decodeURIComponent(h); }catch(e){}
+                        var mm = h.match(/\/(track|episode)\/([a-zA-Z0-9]{22})/) || h.match(/spotify:(track|episode):([a-zA-Z0-9]{22})/);
+                        if(mm) return { id: mm[2], kind: mm[1] };
+                    }
+                }catch(e){}
+                if(window.splTrackId) return { id: window.splTrackId, kind: 'track' };
+                return null;
+            };
+
+            /*
+             * Looks up artist, album and cover for the playing title. Tries, in order:
+             * Spotify's internal track metadata, the public track endpoint, and the
+             * currently-playing endpoint. A result is used only if it names the title.
+             */
             window.splApiNowFetch = function(keyArg){
                 try{
-                    if(!window.spotAuthToken || window.__splApiBusy) return;
+                    if(window.__splApiBusy) return;
                     var key = (typeof keyArg === 'string') ? keyArg : window.splApiNowKey();
                     if(!key) return;
                     if(window.__splApiNow && window.__splApiNow.key === key) return;
+                    if(!window.spotAuthToken){ if(window.__splNoTokLog !== key){ window.__splNoTokLog = key; window.splLog('no auth token yet'); } return; }
                     if(window.__splApiFailKey !== key){ window.__splApiFailKey = key; window.__splApiFailN = 0; window.__splApiFailAt = 0; }
-                    if(window.__splApiFailN >= 14 || Date.now() - window.__splApiFailAt < 1200) return;
+                    var n = window.__splApiFailN;
+                    if(n >= 14 || Date.now() - window.__splApiFailAt < 1200) return;
 
-                    /* Prefer a direct lookup by the id shown on the page (no delay); the
-                       currently-playing endpoint lags behind a track change. If the direct
-                       lookup does not match the title, use currently-playing instead. */
-                    var tid = null, kind = 'tracks';
-                    if(window.__splApiDirectBad !== key){
-                        try{
-                            var links = document.querySelectorAll('a[data-testid="context-item-link"], [data-testid="now-playing-widget"] a[href]');
-                            for(var li = 0; li < links.length && !tid; li++){
-                                var h = String(links[li].getAttribute('href') || '');
-                                try{ h = decodeURIComponent(h); }catch(e){}
-                                var mm = h.match(/\/(track|episode)\/([a-zA-Z0-9]{22})/) || h.match(/spotify:(track|episode):([a-zA-Z0-9]{22})/);
-                                if(mm){ tid = mm[2]; kind = (mm[1] === 'episode') ? 'episodes' : 'tracks'; }
-                            }
-                        }catch(e){}
+                    var t = window.splNowTrackId();
+                    var stage = (t && t.kind === 'track') ? n : n + 2;
+                    var url, mode;
+                    if(stage === 0 && window.splB62Hex(t.id)){
+                        mode = 'internal'; url = 'https://spclient.wg.spotify.com/metadata/4/track/' + window.splB62Hex(t.id) + '?market=from_token';
+                    } else if(stage <= 1 && t){
+                        mode = 'public'; url = 'https://api.spotify.com/v1/' + (t.kind === 'episode' ? 'episodes/' : 'tracks/') + t.id;
+                    } else {
+                        mode = 'current'; url = 'https://api.spotify.com/v1/me/player/currently-playing?additional_types=track,episode';
                     }
-                    var url = tid
-                        ? ('https://api.spotify.com/v1/' + kind + '/' + tid)
-                        : 'https://api.spotify.com/v1/me/player/currently-playing?additional_types=track,episode';
 
                     window.__splApiBusy = true;
-                    var hdr = { 'Authorization': window.spotAuthToken, 'app-platform': 'WebPlayer' };
+                    var hdr = { 'Authorization': window.spotAuthToken, 'app-platform': 'WebPlayer', 'Accept': 'application/json' };
                     if(window.spotCliToken) hdr['Client-Token'] = window.spotCliToken;
                     var f = window.mngFetch || window.fetch;
                     f(url, { headers: hdr })
-                        .then(function(r){ if(r.status !== 200) throw new Error('status ' + r.status); return r.json(); })
+                        .then(function(r){ if(r.status !== 200) throw new Error('HTTP ' + r.status); return r.json(); })
                         .then(function(j){
-                            var it = tid ? j : (j && j.item);
+                            var it = (mode === 'current') ? (j && j.item) : j;
                             if(!it) throw new Error('no item');
                             var a1 = String(it.name || '').trim().toLowerCase(), b1 = key.trim().toLowerCase();
-                            if(!a1 || (a1 !== b1 && a1.indexOf(b1) < 0 && b1.indexOf(a1) < 0)) throw new Error('other track');
-                            var src = it.album || it.show || {};
-                            var imgs = (it.album && it.album.images) || it.images || (it.show && it.show.images) || [];
-                            var names = [];
-                            if(it.artists){ for(var i = 0; i < it.artists.length; i++){ if(it.artists[i] && it.artists[i].name) names.push(it.artists[i].name); } }
-                            window.__splApiNow = {
-                                key: key,
-                                id: it.id || tid || null,
-                                artist: names.length ? names.join(', ') : ((it.show && it.show.publisher) || ''),
-                                album: src.name || '',
-                                cover: (imgs.length && imgs[0].url) ? imgs[0].url : null
-                            };
+                            if(!a1 || (a1 !== b1 && a1.indexOf(b1) < 0 && b1.indexOf(a1) < 0)) throw new Error('other title: ' + it.name);
+                            var names = [], album = '', cover = null, list = it.artists || it.artist || [];
+                            for(var i = 0; i < list.length; i++){ if(list[i] && list[i].name && names.indexOf(list[i].name) < 0) names.push(list[i].name); }
+                            if(mode === 'internal'){
+                                album = (it.album && it.album.name) || '';
+                                var cg = it.album && it.album.cover_group && it.album.cover_group.image;
+                                if(cg && cg.length){ var big = cg[cg.length - 1]; for(var k = 0; k < cg.length; k++){ if(cg[k].size === 'LARGE') big = cg[k]; } cover = 'https://i.scdn.co/image/' + big.file_id; }
+                            } else {
+                                var src = it.album || it.show || {};
+                                album = src.name || '';
+                                var imgs = (it.album && it.album.images) || it.images || (it.show && it.show.images) || [];
+                                cover = (imgs.length && imgs[0].url) ? imgs[0].url : null;
+                                if(!names.length && it.show && it.show.publisher) names.push(it.show.publisher);
+                            }
+                            window.__splApiNow = { key: key, artist: names.join(', '), album: album, cover: cover };
+                            window.splLog(mode + ' ok: ' + key + ' / ' + names.join(', ') + ' / ' + album);
                             window.lastState = null;
                             if(typeof window.updMedia === 'function'){ try{ window.updMedia(); }catch(e){} }
                         })
-                        .catch(function(){ if(tid) window.__splApiDirectBad = key; window.__splApiFailN = (window.__splApiFailN || 0) + 1; window.__splApiFailAt = Date.now(); })
+                        .catch(function(err){
+                            window.splLog(mode + ' failed for "' + key + '": ' + (err && err.message ? err.message : err));
+                            window.__splApiFailN = (window.__splApiFailN || 0) + 1; window.__splApiFailAt = Date.now();
+                        })
                         .then(function(){ window.__splApiBusy = false; });
-                }catch(e){ window.__splApiBusy = false; }
+                }catch(e){ window.__splApiBusy = false; window.splLog('lookup error: ' + e); }
             };
 
             /*
@@ -216,6 +246,19 @@ object MediaUpdater {
                 if(!np.album) np.album = (m && m.album) || (api && api.album) || '';
                 if(!np.cover) np.cover = (m && m.cover) || (api && api.cover) || null;
                 if(!np.artist || !np.album || !np.cover) window.splApiNowFetch(key);
+                if(window.__splDiagKey !== key){
+                    window.__splDiagKey = key;
+                    try{
+                        var md = navigator.mediaSession && navigator.mediaSession.metadata;
+                        var tl = document.querySelector('a[data-testid=context-item-link]') || document.querySelector('[data-testid=context-item-info-title]');
+                        var box = tl; for(var u = 0; box && u < 3; u++) box = box.parentElement;
+                        var t = window.splNowTrackId();
+                        window.splLog('title="' + key + '" id=' + (t ? t.kind + ':' + t.id : 'none') + ' storedMeta=' + (m ? 'yes' : 'no')
+                            + ' mediaSession="' + (md ? (md.title + ' / ' + md.artist + ' / ' + md.album) : 'none') + '"'
+                            + ' page artist="' + (np.artist || '') + '" token=' + (window.spotAuthToken ? 'yes' : 'no'));
+                        if(box) window.splLog('bar html: ' + String(box.outerHTML || '').replace(/\s(class|style)="[^"]*"/g, '').slice(0, 1500));
+                    }catch(e){}
+                }
                 return np;
             };
 

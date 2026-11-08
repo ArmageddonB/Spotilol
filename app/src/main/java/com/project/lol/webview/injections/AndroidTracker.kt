@@ -36,6 +36,19 @@ object AndroidTracker {
                     for(var ai = 0; ai < al.length; ai++){ var at = txt(al[ai]); if(at && an.indexOf(at) < 0) an.push(at); }
                     artist = an.join(', ');
                 }
+                if(!artist){
+                    /* Artist links next to the title in the now-playing bar, whatever their test ids are. */
+                    var tl0 = q('a[data-testid=context-item-link]') || q('[data-testid=context-item-info-title]');
+                    for(var up = tl0, lv = 0; up && lv < 6 && !artist; up = up.parentElement, lv++){
+                        var nl = up.querySelectorAll ? up.querySelectorAll('a[href*="/artist/"], a[href*="/show/"]') : [];
+                        if(nl.length && nl.length <= 10){
+                            var nn = [];
+                            for(var ni = 0; ni < nl.length; ni++){ var nt = txt(nl[ni]); if(nt && nn.indexOf(nt) < 0) nn.push(nt); }
+                            artist = nn.join(', ');
+                        }
+                        if(nl.length > 10) break;
+                    }
+                }
                 if(!artist && msOk) artist = (ms.artist || '').trim();
 
                 if(!title){
