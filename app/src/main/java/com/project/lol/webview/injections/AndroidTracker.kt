@@ -25,11 +25,14 @@ object AndroidTracker {
                 if(!title && w) title = txt(w.querySelector('a[href*="/track/"], a[href*="/episode/"]'));
                 if(!title && ms) title = (ms.title || '').trim();
 
+                /* The media session can lag behind a track change: trust it only for the same title. */
+                var msOk = !!ms && (!title || String(ms.title || '').trim().toLowerCase() === title.trim().toLowerCase());
+
                 var artist = txt(q('a[data-testid=context-item-info-artist]'))
                     || txt(q('a[data-testid=context-item-info-show]'))
                     || txt(q('[data-testid=context-item-info-subtitles]'));
                 if(!artist && w) artist = txt(w.querySelector('a[href*="/artist/"], a[href*="/show/"]'));
-                if(!artist && ms) artist = (ms.artist || '').trim();
+                if(!artist && msOk) artist = (ms.artist || '').trim();
 
                 if(!title){
                     var dt = (document.title || '').split(' • ');
@@ -43,7 +46,7 @@ object AndroidTracker {
                 var im = q('img[data-testid=cover-art-image]');
                 if(!im && w) im = w.querySelector('img[src]');
                 if(im && im.src) cover = im.src;
-                if(!cover && ms && ms.artwork && ms.artwork.length){
+                if(!cover && msOk && ms.artwork && ms.artwork.length){
                     var best = null, bestSize = -1;
                     for(var i = 0; i < ms.artwork.length; i++){
                         var a = ms.artwork[i];
@@ -61,7 +64,7 @@ object AndroidTracker {
                 out.track = title || null;
                 out.artist = artist || '';
                 out.cover = cover || null;
-                out.album = (ms && ms.album) ? String(ms.album).trim() : '';
+                out.album = (msOk && ms.album) ? String(ms.album).trim() : '';
                 if(typeof window.splFillNowPlaying === 'function'){ try{ window.splFillNowPlaying(out); }catch(e){} }
                 return out;
             };

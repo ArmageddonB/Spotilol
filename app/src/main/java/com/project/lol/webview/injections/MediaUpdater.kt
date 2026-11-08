@@ -203,7 +203,7 @@ object MediaUpdater {
                 var tl = key.trim().toLowerCase();
                 var id = (typeof window.splPlayingTrackId === 'function') ? window.splPlayingTrackId() : null;
                 var m = (id && window.__splTrackMeta && window.__splTrackMeta[id]) || null;
-                if(m && m.name && String(m.name).trim().toLowerCase() !== tl) m = null;
+                if(m && !(m.name && String(m.name).trim().toLowerCase() === tl)) m = null;
                 var api = (window.__splApiNow && window.__splApiNow.key === key) ? window.__splApiNow : null;
                 if(!np.artist) np.artist = (m && m.artist) || (api && api.artist) || '';
                 if(!np.album) np.album = (m && m.album) || (api && api.album) || '';
@@ -219,11 +219,13 @@ object MediaUpdater {
                 var m = (id && window.__splTrackMeta && window.__splTrackMeta[id]) || {};
                 var api = (window.__splApiNow && window.__splApiNow.key === window.splApiNowKey()) ? window.__splApiNow : null;
                 var tl = (typeof track === 'string') ? track.trim().toLowerCase() : '';
-                var sameName = function(n){ return !n || !tl || String(n).trim().toLowerCase() === tl; };
-                var album = m.album || ((id != null && window.__curTrackId === id) ? window.__curTrackAlbum : null) || window.__splMsAlbum || (api && api.album) || '';
+                var sameName = function(n){ return !!n && !!tl && String(n).trim().toLowerCase() === tl; };
+                var mOk = sameName(m.name);
+                var curOk = (id != null && window.__curTrackId === id && sameName(window.__curTrackName));
+                var album = (mOk ? m.album : null) || (curOk ? window.__curTrackAlbum : null) || window.__splMsAlbum || (api && api.album) || '';
                 var coverOut = cover
-                    || ((m.cover && sameName(m.name)) ? m.cover : null)
-                    || ((id != null && window.__curTrackId === id && sameName(window.__curTrackName)) ? window.__curTrackCover : null)
+                    || (mOk ? m.cover : null)
+                    || (curOk ? window.__curTrackCover : null)
                     || (api && api.cover)
                     || null;
                 if(track && (!coverOut || !album)) window.splApiNowFetch();
