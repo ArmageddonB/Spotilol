@@ -150,14 +150,21 @@ object MediaUpdater {
                     if(window.__splApiFailKey !== key){ window.__splApiFailKey = key; window.__splApiFailN = 0; window.__splApiFailAt = 0; }
                     if(window.__splApiFailN >= 14 || Date.now() - window.__splApiFailAt < 1200) return;
 
-                    /* Prefer a direct lookup by id (no delay); the currently-playing endpoint lags behind a track change. */
+                    /* Prefer a direct lookup by the id shown on the page (no delay); the
+                       currently-playing endpoint lags behind a track change. If the direct
+                       lookup does not match the title, use currently-playing instead. */
                     var tid = null, kind = 'tracks';
-                    try{
-                        var la = document.querySelector('a[data-testid="context-item-link"], [data-testid="now-playing-widget"] a[href*="/track/"], [data-testid="now-playing-widget"] a[href*="/episode/"]');
-                        var mm = la ? String(la.getAttribute('href') || '').match(/\/(track|episode)\/([a-zA-Z0-9]{22})/) : null;
-                        if(mm){ tid = mm[2]; kind = (mm[1] === 'episode') ? 'episodes' : 'tracks'; }
-                        if(!tid && typeof window.splPlayingTrackId === 'function'){ tid = window.splPlayingTrackId(); kind = 'tracks'; }
-                    }catch(e){}
+                    if(window.__splApiDirectBad !== key){
+                        try{
+                            var links = document.querySelectorAll('a[data-testid="context-item-link"], [data-testid="now-playing-widget"] a[href]');
+                            for(var li = 0; li < links.length && !tid; li++){
+                                var h = String(links[li].getAttribute('href') || '');
+                                try{ h = decodeURIComponent(h); }catch(e){}
+                                var mm = h.match(/\/(track|episode)\/([a-zA-Z0-9]{22})/) || h.match(/spotify:(track|episode):([a-zA-Z0-9]{22})/);
+                                if(mm){ tid = mm[2]; kind = (mm[1] === 'episode') ? 'episodes' : 'tracks'; }
+                            }
+                        }catch(e){}
+                    }
                     var url = tid
                         ? ('https://api.spotify.com/v1/' + kind + '/' + tid)
                         : 'https://api.spotify.com/v1/me/player/currently-playing?additional_types=track,episode';
@@ -187,7 +194,7 @@ object MediaUpdater {
                             window.lastState = null;
                             if(typeof window.updMedia === 'function'){ try{ window.updMedia(); }catch(e){} }
                         })
-                        .catch(function(){ window.__splApiFailN = (window.__splApiFailN || 0) + 1; window.__splApiFailAt = Date.now(); })
+                        .catch(function(){ if(tid) window.__splApiDirectBad = key; window.__splApiFailN = (window.__splApiFailN || 0) + 1; window.__splApiFailAt = Date.now(); })
                         .then(function(){ window.__splApiBusy = false; });
                 }catch(e){ window.__splApiBusy = false; }
             };

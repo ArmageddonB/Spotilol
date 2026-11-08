@@ -730,7 +730,12 @@ object SpotilolPlayer {
                         var artistEl=document.querySelector('a[data-testid=context-item-info-artist]');
                         if(!artistEl) artistEl=document.querySelector('a[data-testid=context-item-info-show]');
                         if(ar&&artistEl&&tk.textContent!=='No track') ar.textContent=artistEl.textContent||'';
-                        else if(ar&&!artistEl&&splNp&&splNp.artist&&tk.textContent!=='No track'&&ar.textContent!==splNp.artist) ar.textContent=splNp.artist;
+                        else if(ar&&!artistEl&&tk.textContent!=='No track'){
+                            var splAr=(splNp&&splNp.artist)||'';
+                            if(splAr){ if(ar.textContent!==splAr) ar.textContent=splAr; }
+                            else if(ar.getAttribute('data-for')!==tk.textContent) ar.textContent='';
+                            ar.setAttribute('data-for',tk.textContent);
+                        }
 
                         var rg=document.querySelector('[data-testid="playback-progressbar"] input[type=range]');
                         if(pp||ppm){

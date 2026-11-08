@@ -31,7 +31,11 @@ object AndroidTracker {
                 var artist = txt(q('a[data-testid=context-item-info-artist]'))
                     || txt(q('a[data-testid=context-item-info-show]'))
                     || txt(q('[data-testid=context-item-info-subtitles]'));
-                if(!artist && w) artist = txt(w.querySelector('a[href*="/artist/"], a[href*="/show/"]'));
+                if(!artist && w){
+                    var al = w.querySelectorAll('a[href*="/artist/"], a[href*="/show/"]'), an = [];
+                    for(var ai = 0; ai < al.length; ai++){ var at = txt(al[ai]); if(at && an.indexOf(at) < 0) an.push(at); }
+                    artist = an.join(', ');
+                }
                 if(!artist && msOk) artist = (ms.artist || '').trim();
 
                 if(!title){
