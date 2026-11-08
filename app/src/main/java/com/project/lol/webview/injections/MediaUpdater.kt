@@ -148,24 +148,38 @@ object MediaUpdater {
                     if(!key) return;
                     if(window.__splApiNow && window.__splApiNow.key === key) return;
                     if(window.__splApiFailKey !== key){ window.__splApiFailKey = key; window.__splApiFailN = 0; window.__splApiFailAt = 0; }
-                    if(window.__splApiFailN >= 6 || Date.now() - window.__splApiFailAt < 4000) return;
+                    if(window.__splApiFailN >= 14 || Date.now() - window.__splApiFailAt < 1200) return;
+
+                    /* Prefer a direct lookup by id (no delay); the currently-playing endpoint lags behind a track change. */
+                    var tid = null, kind = 'tracks';
+                    try{
+                        var la = document.querySelector('a[data-testid="context-item-link"], [data-testid="now-playing-widget"] a[href*="/track/"], [data-testid="now-playing-widget"] a[href*="/episode/"]');
+                        var mm = la ? String(la.getAttribute('href') || '').match(/\/(track|episode)\/([a-zA-Z0-9]{22})/) : null;
+                        if(mm){ tid = mm[2]; kind = (mm[1] === 'episode') ? 'episodes' : 'tracks'; }
+                        if(!tid && typeof window.splPlayingTrackId === 'function'){ tid = window.splPlayingTrackId(); kind = 'tracks'; }
+                    }catch(e){}
+                    var url = tid
+                        ? ('https://api.spotify.com/v1/' + kind + '/' + tid)
+                        : 'https://api.spotify.com/v1/me/player/currently-playing?additional_types=track,episode';
+
                     window.__splApiBusy = true;
                     var hdr = { 'Authorization': window.spotAuthToken, 'app-platform': 'WebPlayer' };
                     if(window.spotCliToken) hdr['Client-Token'] = window.spotCliToken;
                     var f = window.mngFetch || window.fetch;
-                    f('https://api.spotify.com/v1/me/player/currently-playing?additional_types=track,episode', { headers: hdr })
+                    f(url, { headers: hdr })
                         .then(function(r){ if(r.status !== 200) throw new Error('status ' + r.status); return r.json(); })
                         .then(function(j){
-                            var it = j && j.item;
+                            var it = tid ? j : (j && j.item);
                             if(!it) throw new Error('no item');
-                            if(String(it.name || '').trim().toLowerCase() !== key.trim().toLowerCase()) throw new Error('other track');
+                            var a1 = String(it.name || '').trim().toLowerCase(), b1 = key.trim().toLowerCase();
+                            if(!a1 || (a1 !== b1 && a1.indexOf(b1) < 0 && b1.indexOf(a1) < 0)) throw new Error('other track');
                             var src = it.album || it.show || {};
                             var imgs = (it.album && it.album.images) || it.images || (it.show && it.show.images) || [];
                             var names = [];
                             if(it.artists){ for(var i = 0; i < it.artists.length; i++){ if(it.artists[i] && it.artists[i].name) names.push(it.artists[i].name); } }
                             window.__splApiNow = {
                                 key: key,
-                                id: it.id || null,
+                                id: it.id || tid || null,
                                 artist: names.length ? names.join(', ') : ((it.show && it.show.publisher) || ''),
                                 album: src.name || '',
                                 cover: (imgs.length && imgs[0].url) ? imgs[0].url : null
